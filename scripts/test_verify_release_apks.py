@@ -275,9 +275,18 @@ class ApkPublicationGateTest(unittest.TestCase):
 
         self.diagnostics = diagnostics.getvalue()
 
+    def independent_v2_output(self):
+        # Keep captured upstream evidence unchanged; this is a synthetic replay
+        # with our public certificate substituted, not a real SDK observation.
+        captured = (ROOT / "scripts/fixtures/apksigner/run-40062562548-v2.txt").read_text()
+        return captured.replace(
+            "475baf431b16d050c8f658ac838783b273f7c10bba06ed1d16bb0a4239f592fb",
+            CERTIFICATE,
+        )
+
     def test_observed_v2_output_passes_actual_publisher_for_all_splits(self):
         # Captured public output, replayed through a mock; NOT SDK execution.
-        observed = (ROOT / "scripts/fixtures/apksigner/run-40062562548-v2.txt").read_text()
+        observed = self.independent_v2_output()
         self.certificates = dict.fromkeys(publisher.APK_NAMES, observed)
         self.invoke()
         self.assertEqual(sum(event[0] == "apksigner" for event in self.events), 3)
@@ -295,13 +304,13 @@ class ApkPublicationGateTest(unittest.TestCase):
         self.invoke()
 
     def test_v2_pinned_stdout_cannot_bypass_cryptographic_command_failure(self):
-        observed = (ROOT / "scripts/fixtures/apksigner/run-40062562548-v2.txt").read_text()
+        observed = self.independent_v2_output()
         self.certificates = dict.fromkeys(publisher.APK_NAMES, observed)
         self.tool_errors = {"apksigner"}
         self.invoke("apksigner verification command failed")
 
     def test_v2_invalid_or_ambiguous_records_block_all_publisher_writes(self):
-        observed = (ROOT / "scripts/fixtures/apksigner/run-40062562548-v2.txt").read_text()
+        observed = self.independent_v2_output()
         legacy = self.certificates[publisher.APK_NAMES[0]]
         sha256 = f"V2 Signer: certificate SHA-256 digest: {CERTIFICATE}\n"
         variants = (
@@ -452,8 +461,8 @@ class ApkPublicationGateTest(unittest.TestCase):
             with self.subTest(apk=name):
                 self.reset_apks()
                 self.badging[name] = self.badging[name].replace(
-                    "com.hermesagent.hermes_android",
-                    "com.hermesagent.hermes_android.dev",
+                    "com.stevenzxs.hermes_android",
+                    "com.stevenzxs.hermes_android.dev",
                 )
                 self.invoke("package")
 
