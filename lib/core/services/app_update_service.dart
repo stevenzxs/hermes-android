@@ -104,7 +104,7 @@ class AppReleaseApk {
         url.hasQuery ||
         url.hasFragment ||
         url.pathSegments.length != 6 ||
-        url.pathSegments[0] != 'rusty4444' ||
+        url.pathSegments[0] != 'stevenzxs' ||
         url.pathSegments[1] != 'hermes-android' ||
         url.pathSegments[2] != 'releases' ||
         url.pathSegments[3] != 'download' ||
@@ -246,7 +246,7 @@ class AppUpdateService {
 
   /// The upstream project whose releases the app follows.
   static const releasesApiUrl =
-      'https://api.github.com/repos/rusty4444/hermes-android/releases/latest';
+      'https://api.github.com/repos/stevenzxs/hermes-android/releases/latest';
 
   /// How long a check counts for. GitHub answers unauthenticated callers on a
   /// per-IP budget, and a launch several times an hour must not spend it.

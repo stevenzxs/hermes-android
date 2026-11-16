@@ -22,7 +22,7 @@ from unittest import mock
 from scripts import publish_github_release as publisher
 
 ROOT = Path(__file__).resolve().parents[1]
-CERTIFICATE = "475baf431b16d050c8f658ac838783b273f7c10bba06ed1d16bb0a4239f592fb"
+CERTIFICATE = "ccc22121cccab1671afaaa432df4a600c8d2c60dd02dc1f0ce3e812200f14d13"
 ABI_CODES = {"armeabi-v7a": 1, "arm64-v8a": 2, "x86_64": 3}
 SOURCE_DIRECTORY = "third_party/sources/embedded-fcm-distributor-3.1.0"
 NATIVE_SOURCES = (
@@ -146,7 +146,7 @@ class ApkPublicationGateTest(unittest.TestCase):
             name = f"app-{abi}-release.apk"
             self.write_apk(name)
             self.badging[name] = (
-                "package: name='com.hermesagent.hermes_android' "
+                "package: name='com.stevenzxs.hermes_android' "
                 f"versionCode='{self.base_code * 10 + code}' "
                 f"versionName='{self.version_name}' platformBuildVersionName='16'\n"
                 f"native-code: '{abi}'\n"

@@ -32,12 +32,12 @@ android {
            "versionCode ${flutter.versionCode} must be greater than " +
                "$minimumInstalledVersionCode to upgrade the accepted Hermes APK"
        }
-       applicationId = "com.hermesagent.hermes_android"
+        applicationId = "com.stevenzxs.hermes_android"
        minSdk = 24
        targetSdk = 36
        versionCode = flutter.versionCode
        versionName = flutter.versionName
-       manifestPlaceholders["appLabel"] = "Ares"
+        manifestPlaceholders["appLabel"] = "Ares StevenZXS"
        buildConfigField("boolean", "PLAY_BUILD", playBuild.toString())
        }
 

@@ -18,7 +18,7 @@ Map<String, Object?> _asset(
     'name': file,
     'browser_download_url':
         url ??
-        'https://github.com/rusty4444/hermes-android/releases/download/v3.2.6/$file',
+        'https://github.com/stevenzxs/hermes-android/releases/download/v3.2.6/$file',
     'digest': digest ?? 'sha256:$_digest',
     'size': size,
     'state': 'uploaded',
@@ -107,7 +107,7 @@ void main() {
           _asset(
             'arm64-v8a',
             url:
-                'https://github.com/rusty4444/hermes-android/releases/download/v3.2.6-beta.1/app-arm64-v8a-release.apk',
+                'https://github.com/stevenzxs/hermes-android/releases/download/v3.2.6-beta.1/app-arm64-v8a-release.apk',
           ),
         ],
       }),

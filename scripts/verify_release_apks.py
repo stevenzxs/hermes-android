@@ -18,10 +18,10 @@ import sys
 import zipfile
 from pathlib import Path
 
-PACKAGE_NAME = "com.hermesagent.hermes_android"
+PACKAGE_NAME = "com.stevenzxs.hermes_android"
 # Public production identity, not an environment-configurable trust anchor.
 PRODUCTION_CERT_SHA256 = (
-    "475baf431b16d050c8f658ac838783b273f7c10bba06ed1d16bb0a4239f592fb"
+    "ccc22121cccab1671afaaa432df4a600c8d2c60dd02dc1f0ce3e812200f14d13"
 )
 ABI_CODES = {"armeabi-v7a": 1, "arm64-v8a": 2, "x86_64": 3}
 APK_NAMES = tuple(f"app-{abi}-release.apk" for abi in ABI_CODES)
