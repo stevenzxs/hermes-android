@@ -13,7 +13,9 @@ void main() {
     expect(match, isNotNull);
     expect(match!.group(1), '4.0.0');
     final baseCode = int.parse(match.group(2)!);
-    expect(baseCode, 3048);
+    // Committed joint-delivery baseline (was 3048); revision policy may
+    // allocate higher derived codes, never lower.
+    expect(baseCode, 3049);
     expect(baseCode, greaterThan(3036));
     // Every split must upgrade the highest published 4.0.0-rc.10 split.
     for (final abiCode in [1, 2, 3]) {
@@ -23,7 +25,7 @@ void main() {
       [
         for (final abiCode in [1, 2, 3]) baseCode * 10 + abiCode,
       ],
-      [30481, 30482, 30483],
+      [30491, 30492, 30493],
     );
   });
 
