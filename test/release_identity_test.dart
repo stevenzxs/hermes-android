@@ -13,20 +13,28 @@ void main() {
     expect(match, isNotNull);
     expect(match!.group(1), '4.0.0');
     final baseCode = int.parse(match.group(2)!);
-    // Committed joint-delivery baseline (was 3048); revision policy may
-    // allocate higher derived codes, never lower.
-    expect(baseCode, 3049);
+    // Committed joint-delivery baseline is 3049; a joint release build carries a
+    // ledger-derived code 3049<N> from the deterministic version commit.
+    expect(
+      baseCode == 3049 || RegExp(r'^3049[1-9]\d*$').hasMatch('$baseCode'),
+      isTrue,
+      reason: 'baseline 3049 or joint ledger revision code 3049<N>',
+    );
     expect(baseCode, greaterThan(3036));
     // Every split must upgrade the highest published 4.0.0-rc.10 split.
     for (final abiCode in [1, 2, 3]) {
       expect(baseCode * 10 + abiCode, greaterThan(30473));
     }
-    expect(
-      [
-        for (final abiCode in [1, 2, 3]) baseCode * 10 + abiCode,
-      ],
-      [30491, 30492, 30493],
-    );
+    final splits = [for (final abiCode in [1, 2, 3]) baseCode * 10 + abiCode];
+    if (baseCode == 3049) {
+      // Exact committed-baseline identity.
+      expect(splits, [30491, 30492, 30493]);
+    } else {
+      // Revision-derived codes must strictly upgrade the baseline splits.
+      for (var i = 0; i < 3; i++) {
+        expect(splits[i], greaterThan([30491, 30492, 30493][i]));
+      }
+    }
   });
 
   test('Gradle and CI enforce the accepted APK upgrade floor', () {
