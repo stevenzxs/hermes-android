@@ -668,6 +668,41 @@ class ApkPublicationGateTest(unittest.TestCase):
                         + re.escape(constant)
                     )
 
+    def test_display_version_override_matches_build_name_apk(self):
+        from scripts.verify_release_apks import verify_release_apks
+
+        display = "4.0.0+r1"
+        for name in publisher.APK_NAMES:
+            self.badging[name] = self.badging[name].replace(self.version_name, display)
+        self.diagnostic_output = io.StringIO()
+        with (
+            mock.patch.object(subprocess, "check_output", side_effect=self.command_output),
+            mock.patch.dict(os.environ, self.environment, clear=True),
+            contextlib.redirect_stderr(self.diagnostic_output),
+        ):
+            report = verify_release_apks(self.directory, self.head, version_name=display)
+        self.assertEqual(report["version_name"], display)
+        self.assertEqual(report["pubspec_version_name"], self.version_name)
+        self.assertEqual(report["base_version_code"], self.base_code)
+
+    def test_display_version_override_mismatch_blocks(self):
+        from scripts.verify_release_apks import verify_release_apks
+
+        self.diagnostic_output = io.StringIO()
+        with (
+            mock.patch.object(subprocess, "check_output", side_effect=self.command_output),
+            mock.patch.dict(os.environ, self.environment, clear=True),
+            contextlib.redirect_stderr(self.diagnostic_output),
+        ):
+            with self.assertRaisesRegex(ValueError, "versionName"):
+                verify_release_apks(self.directory, self.head, version_name="4.0.0+r9")
+
+    def test_display_version_override_rejects_malformed_name(self):
+        from scripts.verify_release_apks import verify_release_apks
+
+        with self.assertRaisesRegex(ValueError, "versionName|display"):
+            verify_release_apks(self.directory, self.head, version_name="4.0.0; rm -rf /")
+
     def test_standalone_verifier_checks_exact_apk_set(self):
         from scripts.verify_release_apks import verify_release_apks
 

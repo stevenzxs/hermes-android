@@ -290,8 +290,13 @@ def verify_packaged_assets(apk: Path, expected: dict[str, bytes]) -> None:
         raise ValueError(f"APK {apk.name} is not a readable, valid ZIP") from error
 
 
-def verify_release_apks(directory: Path, target: str, root: Path = Path(".")) -> dict:
-    """Verify all three actual splits, or raise before publication is possible."""
+def verify_release_apks(directory: Path, target: str, root: Path = Path("."), *, version_name: str | None = None) -> dict:
+    """Verify all three actual splits, or raise before publication is possible.
+
+    version_name overrides the expected display versionName when the build used
+    an explicit --build-name (e.g. ledger display `4.0.0+r4` over pubspec
+    `4.0.0+30494`). The committed pubspec still pins the base versionCode.
+    """
     if re.fullmatch(r"[0-9a-f]{40}", target) is None:
         raise ValueError("APK verification requires the full publication commit SHA")
     apks = [directory / name for name in APK_NAMES]
@@ -301,7 +306,10 @@ def verify_release_apks(directory: Path, target: str, root: Path = Path(".")) ->
         raise ValueError(
             "APK verification requires exactly the three nonempty release ABI APKs"
         )
-    version_name, base_code = committed_identity(root, target)
+    committed_name, base_code = committed_identity(root, target)
+    if version_name is not None and not re.fullmatch(r"[0-9A-Za-z.-]+(\+r[0-9]+)?", version_name):
+        raise ValueError("Invalid display versionName override")
+    display_name = version_name or committed_name
     expected = committed_assets(root, target)
     aapt, apksigner = sdk_tools()
     verify_java()
@@ -312,7 +320,7 @@ def verify_release_apks(directory: Path, target: str, root: Path = Path(".")) ->
             verify_badging(
                 tool_output([str(aapt), "dump", "badging", str(apk)]),
                 abi,
-                version_name,
+                display_name,
                 effective_code,
             )
             verify_signer(
@@ -331,7 +339,8 @@ def verify_release_apks(directory: Path, target: str, root: Path = Path(".")) ->
         )
     return {
         "application_commit": target,
-        "version_name": version_name,
+        "version_name": display_name,
+        "pubspec_version_name": committed_name,
         "base_version_code": base_code,
         "signer_sha256": PRODUCTION_CERT_SHA256,
         "apks": verified,
@@ -343,9 +352,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", required=True, help="Full publication commit SHA")
     parser.add_argument("--assets-dir", required=True, type=Path)
+    parser.add_argument("--version-name", default=None,
+                        help="Expected display versionName when built with --build-name")
     args = parser.parse_args()
     try:
-        report = verify_release_apks(args.assets_dir, args.target)
+        report = verify_release_apks(args.assets_dir, args.target, version_name=args.version_name)
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         raise SystemExit(f"APK pre-publication verification failed: {error}") from error
     print(json.dumps(report, indent=2))
