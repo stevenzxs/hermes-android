@@ -14,6 +14,11 @@ import 'package:hermes_android/core/widgets/cron_schedule_labels.dart';
 import 'package:http/http.dart' as http;
 
 void main() {
+  test('manual schedule has a stable label and no next instant', () {
+    final job = <String, dynamic>{'schedule': {'kind': 'manual'}, 'next_run_at': null};
+    expect(cronScheduleDisplay(job), 'manual');
+    expect(cronNextRun(job), isNull);
+  });
   group('next-run timezone', () {
     test('an offset timestamp keeps the server wall clock and its zone', () {
       final next = cronNextRun({'next_run_at': '2026-11-09T09:00:00+11:00'})!;

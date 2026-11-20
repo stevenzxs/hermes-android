@@ -24,6 +24,7 @@ import 'desktop_gateway_client.dart';
 import 'hermes_sign_in.dart';
 import 'tls_client_factory.dart';
 import 'main_model_route.dart';
+import 'cron_operations.dart';
 
 // Re-export for convenience
 export '../models/connection.dart';
@@ -3295,6 +3296,9 @@ class DashboardClient {
       );
     }
     if (res.statusCode < 200 || res.statusCode >= 300) {
+      if (endpoint.startsWith('cron/')) {
+        throw cronRequestError(res.statusCode, res.body);
+      }
       throw Exception('HTTP ${res.statusCode}');
     }
     return _decodeMapResponse(res);
@@ -3356,6 +3360,9 @@ class DashboardClient {
       );
     }
     if (res.statusCode < 200 || res.statusCode >= 300) {
+      if (endpoint.startsWith('cron/')) {
+        throw cronRequestError(res.statusCode, res.body);
+      }
       throw Exception('HTTP ${res.statusCode}');
     }
     return _decodeMapResponse(res);
@@ -3683,10 +3690,38 @@ class DashboardClient {
     queryParameters: _cronQuery(),
   );
 
-  Future<Map<String, dynamic>> triggerJob(String jobId) => apiPost(
-    'cron/jobs/${Uri.encodeComponent(jobId)}/trigger',
-    queryParameters: _cronQuery(),
+  static final _cronOperations = CronOperations();
+  final Map<String, String> _cronRoundRequests = {};
+
+  String cronRoundRequestId(String jobId) =>
+      _cronRoundRequests.putIfAbsent(jobId, () => const Uuid().v4());
+
+  Future<Map<String, dynamic>> triggerJob(String jobId) => _cronOperations.run(
+    '$_baseUrl/$_gatewayProfile/$_authGeneration/$jobId',
+    () async {
+      try {
+        return await apiPost(
+          'cron/jobs/${Uri.encodeComponent(jobId)}/trigger',
+          queryParameters: _cronQuery(),
+          timeout: const Duration(minutes: 10),
+        );
+      } on TimeoutException {
+        // Reconcile once, but never replay a potentially accepted POST.
+        try {
+          await getJobs().timeout(const Duration(seconds: 10));
+        } catch (_) {
+          // Failure to reconcile cannot turn an unknown execution into a refusal.
+        }
+        throw Exception('Execution result is unknown. Check run history before retrying.');
+      }
+    },
   );
+
+  Future<Map<String, dynamic>> cronCapabilities() => apiGet('cron/capabilities');
+
+  Future<Map<String, dynamic>> openCronRound(String jobId, String requestId) =>
+      apiPost('cron/jobs/${Uri.encodeComponent(jobId)}/new-round',
+          queryParameters: _cronQuery(), body: {'request_id': requestId});
 
   Future<void> deleteJob(String jobId) => apiDelete(
     'cron/jobs/${Uri.encodeComponent(jobId)}',

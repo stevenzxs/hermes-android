@@ -225,6 +225,7 @@ String cronScheduleDisplay(Map<String, dynamic> job) {
   final schedule = job['schedule'];
   if (schedule is String) return schedule;
   if (schedule is Map) {
+    if (schedule['kind'] == 'manual') return 'manual';
     return schedule['display'] as String? ??
         schedule['expr'] as String? ??
         schedule['run_at'] as String? ??

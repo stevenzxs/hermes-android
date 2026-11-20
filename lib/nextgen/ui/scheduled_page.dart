@@ -3,6 +3,8 @@
 import 'package:flutter/material.dart';
 
 import '../../core/models/session.dart';
+import '../../core/widgets/cron_trigger_settings.dart';
+import '../../core/services/cron_operations.dart';
 import '../theme/nextgen_theme.dart';
 import 'nextgen_scope.dart';
 import 'sessions_sidebar.dart';
@@ -253,13 +255,22 @@ class _JobPageState extends State<_JobPage> {
   }
 
   Future<void> _do(Future<void> Function() action, String done) async {
+    if (_busy) return;
+    final client = NgScope.of(context).gateway.dashboard;
+    bool current() => mounted && identical(client, NgScope.of(context).gateway.dashboard);
     setState(() => _busy = true);
     try {
       await action();
-      if (mounted) ngToast(context, done);
-      await _load();
+      if (current()) {
+        ngToast(context, done);
+        await _load();
+      }
     } catch (e) {
-      if (mounted) ngToast(context, '$e');
+      if (current()) {
+        ngToast(context, cronFailureLabel(e,
+            chinese: Localizations.localeOf(context).languageCode == 'zh'));
+        await _load();
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -273,6 +284,14 @@ class _JobPageState extends State<_JobPage> {
     return NgPage(
       title: _jobName(_job),
       actions: [
+        IconButton(
+          tooltip: 'Trigger settings / new round',
+          icon: const Icon(Icons.tune),
+          onPressed: _busy ? null : () => _do(
+            () => showCronTriggerSettings(context, d, _job),
+            Localizations.localeOf(context).languageCode == 'zh' ? '设置已关闭' : 'Settings closed',
+          ),
+        ),
         IconButton(
           tooltip: ngL.ng_delete,
           icon: Icon(Icons.delete_outline, color: c.danger),
@@ -331,7 +350,7 @@ class _JobPageState extends State<_JobPage> {
                         label: ngL.ng_run_now,
                         icon: Icons.play_arrow_rounded,
                         busy: _busy,
-                        onPressed: () =>
+                         onPressed: _busy || {'completed', 'error'}.contains(_job['state']) ? null : () =>
                             _do(() => d.triggerJob(_id), ngL.ng_started),
                       ),
                     ),

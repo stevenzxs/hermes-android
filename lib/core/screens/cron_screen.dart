@@ -16,6 +16,8 @@ import '../theme/hermes_theme.dart';
 import '../widgets/hermes_components.dart';
 import '../widgets/cron_model_picker.dart';
 import '../widgets/cron_schedule_labels.dart';
+import '../widgets/cron_trigger_settings.dart';
+import '../services/cron_operations.dart';
 import '../utils/cron_schedule.dart';
 import '../utils/relative_time.dart';
 import 'chat_screen.dart';
@@ -77,6 +79,7 @@ class _CronScreenState extends State<CronScreen> {
   void didUpdateWidget(CronScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.connection == widget.connection) return;
+    _triggering.clear();
     _client.close();
     _client = DashboardClient.fromConnection(
       widget.connection,
@@ -214,25 +217,37 @@ class _CronScreenState extends State<CronScreen> {
     }
   }
 
+  final Set<String> _triggering = {};
+
   Future<void> _triggerJob(Map<String, dynamic> job) async {
     final jobId = job['id'] as String? ?? '';
-    if (jobId.isEmpty) return;
+    if (jobId.isEmpty || !_triggering.add(jobId)) return;
+    final client = _client;
+    setState(() {});
     try {
-      await _client.triggerJob(jobId);
-      if (mounted) {
+      await client.triggerJob(jobId);
+      if (mounted && identical(client, _client)) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(context.l10n.job_triggered)));
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && identical(client, _client)) {
         ScaffoldMessenger.of(context).showSnackBar(
           hermesStatusSnackBar(
             context,
-            message: context.l10n.failed(e),
+            message: cronFailureLabel(e,
+                chinese: Localizations.localeOf(context).languageCode == 'zh'),
             status: HermesStatus.failed,
           ),
         );
+      }
+    } finally {
+      _triggering.remove(jobId);
+      if (mounted && identical(client, _client)) {
+        setState(() {});
+        await _loadJobs();
+        if (_expandedJobs.contains(jobId)) await _loadRuns(jobId);
       }
     }
   }
@@ -765,6 +780,14 @@ class _CronScreenState extends State<CronScreen> {
                         PopupMenuButton<String>(
                           onSelected: (action) {
                             if (action == 'trigger') _triggerJob(job);
+                            if (action == 'settings') {
+                              showCronTriggerSettings(context, _client, job)
+                                  .then((_) { if (mounted) _loadJobs(); })
+                                  .catchError((Object e) {
+                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('$e')));
+                              });
+                            }
                             if (action == 'edit' && !_editing) {
                               _showEditJobDialog(job);
                             }
@@ -774,6 +797,8 @@ class _CronScreenState extends State<CronScreen> {
                           itemBuilder: (_) => [
                             PopupMenuItem(
                               value: 'trigger',
+                              enabled: !_triggering.contains(job['id']) &&
+                                  !{'completed', 'error'}.contains(job['state']),
                               child: Row(
                                 children: [
                                   Icon(Icons.play_arrow, size: 18),
@@ -781,6 +806,11 @@ class _CronScreenState extends State<CronScreen> {
                                   Text(context.l10n.trigger_now),
                                 ],
                               ),
+                            ),
+                            PopupMenuItem(
+                              value: 'settings',
+                              child: Text(Localizations.localeOf(context).languageCode == 'zh'
+                                  ? '触发设置 / 开启新一轮' : 'Trigger settings / new round'),
                             ),
                             PopupMenuItem(
                               value: 'edit',

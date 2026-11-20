@@ -105,4 +105,14 @@
 
 ## Execution choice
 
+### Implementation evidence — 2026-11-20 (work in progress)
+
+- Backend isolated checkout: `C:/Users/ZL/AppData/Local/Temp/opencode/cron-trigger-controls/hermes-agent`, base `fa4818f31078f41f9876173fbeff7b6cb8814eec`; original auxiliary-fix checkout untouched.
+- Design adjustment: use `schedule.kind=manual` (parsed from `manual`) instead of duplicating trigger policy in `trigger_mode`. Manual jobs have no computed next instant; due scans and non-manual claims reject them even with stale due timestamps. Existing scheduled extra-fire semantics remain unchanged.
+- Refusals originate at atomic admission. HTTP retains legacy `detail`, adds `code`/`message` and `X-Cron-Error-Code`; unsupported forced providers have their own code. New rounds copy only authored fields under the existing store lock, preserve the original and start paused; duplicate concurrent IDs reuse the successor.
+- Latest backend focused native-runner result: **126 passed, 0 failed, 12 files**. Covers admission, claim concurrency, manual budget/edit, rounds/concurrent replay, round route profile scoping/body validation, legacy extra fires, profile/timezone and repeat regressions. Prior profile tests were adapted to assert actual structured HTTP responses instead of expecting endpoint exceptions.
+- Android code added shared in-flight coordination, bounded cron execution timeout and one bounded reconciliation read (never timeout POST replay), safe error-body decoding/known Chinese reason labels, shared settings and explicit round confirmation on Classic/NextGen. Tests added for coordination/error parsing, mocked transport, settings-only save, manual display.
+- **Android verification blocked:** neither Flutter nor Dart found in PATH, searched Windows SDK locations or existing WSL environment. No SDK downloaded/installed, no Flutter tests/analyzer/formatter or localization generation executed. Android tests are unverified, not passing evidence. Full UI/transport acceptance and lifecycle/idempotency edge-case review remain open.
+- No cloud builds, pushes, server changes, model runs, APK installation or original upgrade-job replay. No delivery/GOV status closed. Changes remain local and uncommitted pending code review/verification; do not treat this note as all six tasks completed.
+
 Plan is ready for task-by-task execution in this session, or a separate session using executing-plans. No subagents are needed unless the user selects delegated execution. This document is a plan, not implementation or passing-test evidence.
