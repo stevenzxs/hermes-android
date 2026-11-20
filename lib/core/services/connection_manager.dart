@@ -3708,7 +3708,7 @@ class DashboardClient {
       } on TimeoutException {
         // Reconcile once, but never replay a potentially accepted POST.
         try {
-          await getJobs().timeout(const Duration(seconds: 10));
+          await getCronJobs().timeout(const Duration(seconds: 10));
         } catch (_) {
           // Failure to reconcile cannot turn an unknown execution into a refusal.
         }

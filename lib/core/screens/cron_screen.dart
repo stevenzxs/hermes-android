@@ -784,8 +784,10 @@ class _CronScreenState extends State<CronScreen> {
                               showCronTriggerSettings(context, _client, job)
                                   .then((_) { if (mounted) _loadJobs(); })
                                   .catchError((Object e) {
-                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('$e')));
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                     SnackBar(content: Text('$e')));
+                                }
                               });
                             }
                             if (action == 'edit' && !_editing) {

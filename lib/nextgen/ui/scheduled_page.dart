@@ -261,12 +261,12 @@ class _JobPageState extends State<_JobPage> {
     setState(() => _busy = true);
     try {
       await action();
-      if (current()) {
+      if (mounted && current()) {
         ngToast(context, done);
         await _load();
       }
     } catch (e) {
-      if (current()) {
+      if (mounted && current()) {
         ngToast(context, cronFailureLabel(e,
             chinese: Localizations.localeOf(context).languageCode == 'zh'));
         await _load();

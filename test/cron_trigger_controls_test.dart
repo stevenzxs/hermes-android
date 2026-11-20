@@ -15,10 +15,14 @@ void main() {
         if (r.url.path.endsWith('/capabilities')) {
           return http.Response('{"manual_schedule":true,"new_round":true}', 200);
         }
-        if (r.url.path == '/') return http.Response(
-            '<html>window.__HERMES_SESSION_TOKEN__="token";</html>', 200);
-        if (r.method == 'PUT') return http.Response(
-            '{"schedule":{"kind":"manual"},"repeat":{"times":5,"completed":1}}', 200);
+        if (r.url.path == '/') {
+          return http.Response(
+             '<html>window.__HERMES_SESSION_TOKEN__="token";</html>', 200);
+        }
+        if (r.method == 'PUT') {
+          return http.Response(
+             '{"schedule":{"kind":"manual"},"repeat":{"times":5,"completed":1}}', 200);
+        }
         return http.Response('{}', 200);
       }));
     await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) => Scaffold(
