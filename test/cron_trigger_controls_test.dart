@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hermes_android/core/services/connection_manager.dart';
@@ -8,7 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
-  testWidgets('saving a manual limit sends only settings, never a trigger', (
+  testWidgets('manual finite limit is read-only; unchanged save never writes', (
     tester,
   ) async {
     final writes = <http.Request>[];
@@ -58,14 +57,14 @@ void main() {
     );
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const ValueKey('cron-limit')), '5');
+    final limit = tester.widget<TextField>(
+      find.byKey(const ValueKey('cron-limit')),
+    );
+    expect(limit.enabled, false);
+    expect(limit.controller!.text, '3');
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
-    expect(writes, hasLength(1));
-    expect(writes.single.method, 'PUT');
-    expect(jsonDecode(writes.single.body), {
-      'updates': {'repeat': 5},
-    });
+    expect(writes, isEmpty);
     client.close();
   });
 }

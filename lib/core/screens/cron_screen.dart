@@ -15,7 +15,7 @@ import '../services/gateway_turn_application_controller.dart';
 import '../theme/hermes_theme.dart';
 import '../widgets/hermes_components.dart';
 import '../widgets/cron_schedule_labels.dart';
-import '../widgets/cron_trigger_settings.dart';
+import '../widgets/cron_job_status.dart';
 import '../widgets/cron_job_editor.dart';
 import '../widgets/cron_job_draft.dart';
 import '../services/cron_operations.dart';
@@ -132,21 +132,13 @@ class _CronScreenState extends State<CronScreen> {
 
   Future<void> _togglePause(Map<String, dynamic> job) async {
     final jobId = job['id'] as String? ?? '';
-    if (jobId.isEmpty) return;
+    if (jobId.isEmpty || cronEnded(job)) return;
     final paused = _isPaused(job);
+    final client = _client;
 
     try {
-      await _client.setJobPaused(jobId, paused: !paused);
-      if (paused) {
-        job.remove('paused_at');
-        job['state'] = 'active';
-        job['enabled'] = true;
-      } else {
-        job['paused_at'] = DateTime.now().toIso8601String();
-        job['state'] = 'paused';
-      }
-      if (mounted) {
-        setState(() {});
+      await client.setJobPaused(jobId, paused: !paused);
+      if (mounted && identical(client, _client)) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -154,9 +146,10 @@ class _CronScreenState extends State<CronScreen> {
             ),
           ),
         );
+        await _loadJobs();
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && identical(client, _client)) {
         ScaffoldMessenger.of(context).showSnackBar(
           hermesStatusSnackBar(
             context,
@@ -221,6 +214,7 @@ class _CronScreenState extends State<CronScreen> {
   final Set<String> _triggering = {};
 
   Future<void> _triggerJob(Map<String, dynamic> job) async {
+    if (_isPaused(job) || cronEnded(job)) return;
     final jobId = job['id'] as String? ?? '';
     if (jobId.isEmpty || !_triggering.add(jobId)) return;
     final client = _client;
@@ -228,9 +222,19 @@ class _CronScreenState extends State<CronScreen> {
     try {
       await client.triggerJob(jobId);
       if (mounted && identical(client, _client)) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(context.l10n.job_triggered)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              cronManual(job)
+                  ? context.l10n.job_triggered
+                  : cronText(
+                      context,
+                      '计划已启用，等待规则时间',
+                      'Plan enabled; waiting for its rule time',
+                    ),
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (mounted && identical(client, _client)) {
@@ -479,29 +483,6 @@ class _CronScreenState extends State<CronScreen> {
     }
   }
 
-  Future<void> _showNewRound(Map<String, dynamic> job) async {
-    if (_editing) return;
-    final client = _client;
-    setState(() => _editing = true);
-    try {
-      final changed = await showCronNewRound(
-        context,
-        client,
-        job,
-        isCurrent: () => mounted && identical(client, _client),
-      );
-      if (changed && mounted && identical(client, _client)) await _loadJobs();
-    } catch (e) {
-      if (mounted && identical(client, _client)) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$e')));
-      }
-    } finally {
-      if (mounted) setState(() => _editing = false);
-    }
-  }
-
   // Creation is separate from the shared edit form: it requires a full payload.
   Future<Map<String, dynamic>?> _showJobDialog({
     required String title,
@@ -555,6 +536,17 @@ class _CronScreenState extends State<CronScreen> {
                       context.l10n.use_for_cron_jobs_backed_by_scripts,
                     ),
                     onChanged: (value) => setDialogState(() => noAgent = value),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    key: const ValueKey('cron-create-limit'),
+                    enabled: false,
+                    readOnly: true,
+                    decoration: InputDecoration(
+                      labelText: cronText(ctx, '最多执行次数', 'Execution limit'),
+                      helperText: cronText(ctx, '留空，不限次数', 'Blank: unlimited'),
+                      border: const OutlineInputBorder(),
+                    ),
                   ),
                 ],
               ),
@@ -756,12 +748,6 @@ class _CronScreenState extends State<CronScreen> {
                         PopupMenuButton<String>(
                           onSelected: (action) {
                             if (action == 'trigger') _triggerJob(job);
-                            if (action == 'settings') {
-                              _showEditJobDialog(job, focusTrigger: true);
-                            }
-                            if (action == 'round') {
-                              _showNewRound(job);
-                            }
                             if (action == 'edit' && !_editing) {
                               _showEditJobDialog(job);
                             }
@@ -772,6 +758,7 @@ class _CronScreenState extends State<CronScreen> {
                             PopupMenuItem(
                               value: 'trigger',
                               enabled:
+                                  !paused &&
                                   !_triggering.contains(job['id']) &&
                                   !{
                                     'completed',
@@ -781,31 +768,10 @@ class _CronScreenState extends State<CronScreen> {
                                 children: [
                                   Icon(Icons.play_arrow, size: 18),
                                   SizedBox(width: 8),
-                                  Text(context.l10n.trigger_now),
+                                  Text(cronStartLabel(context, job)),
                                 ],
                               ),
                             ),
-                            PopupMenuItem(
-                              value: 'settings',
-                              child: Text(
-                                Localizations.localeOf(context).languageCode ==
-                                        'zh'
-                                    ? '触发与执行'
-                                    : 'Trigger & execution',
-                              ),
-                            ),
-                            if ({'completed', 'error'}.contains(job['state']))
-                              PopupMenuItem(
-                                value: 'round',
-                                child: Text(
-                                  Localizations.localeOf(
-                                            context,
-                                          ).languageCode ==
-                                          'zh'
-                                      ? '开启新一轮'
-                                      : 'Open new round',
-                                ),
-                              ),
                             PopupMenuItem(
                               value: 'edit',
                               child: Row(
@@ -818,6 +784,7 @@ class _CronScreenState extends State<CronScreen> {
                             ),
                             PopupMenuItem(
                               value: 'toggle',
+                              enabled: !cronEnded(job),
                               child: Row(
                                 children: [
                                   Icon(
@@ -825,7 +792,11 @@ class _CronScreenState extends State<CronScreen> {
                                     size: 18,
                                   ),
                                   const SizedBox(width: 8),
-                                  Text(paused ? 'Resume' : 'Pause'),
+                                  Text(
+                                    paused
+                                        ? cronText(context, '恢复', 'Resume')
+                                        : cronText(context, '暂停', 'Pause'),
+                                  ),
                                 ],
                               ),
                             ),
@@ -850,6 +821,15 @@ class _CronScreenState extends State<CronScreen> {
                         ),
                       ],
                     ),
+                    CronJobStatus(job: job),
+                    if (paused && !cronEnded(job))
+                      Text(
+                        cronText(
+                          context,
+                          '请先恢复后再触发；正在运行的任务不受影响',
+                          'Resume before triggering; active runs are unaffected',
+                        ),
+                      ),
                     if (prompt.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       Text(

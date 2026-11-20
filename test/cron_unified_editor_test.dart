@@ -22,6 +22,12 @@ Future<void> open(
     host: 'editor.invalid',
     httpClient: MockClient((r) async {
       expect(r.method, 'GET');
+      if (r.url.path == '/') {
+        return http.Response(
+          '<html>window.__HERMES_SESSION_TOKEN__="token";</html>',
+          200,
+        );
+      }
       if (r.url.path.endsWith('capabilities')) {
         return http.Response(
           jsonEncode({'manual_schedule': supportsManual}),
@@ -98,7 +104,7 @@ void main() {
         },
         onResult: (v) => result = v,
       );
-      await tester.tap(find.text('Trigger & execution'));
+      await tester.tap(find.text('Trigger settings'));
       await tester.pumpAndSettle();
       expect(
         tester
@@ -113,7 +119,7 @@ void main() {
     },
   );
 
-  testWidgets('invalid limit and unsupported manual input cannot save', (
+  testWidgets('limit is disabled and unsupported manual input cannot save', (
     tester,
   ) async {
     var returned = false;
@@ -127,14 +133,19 @@ void main() {
       onResult: (_) => returned = true,
     );
     expect(
-      tester.widget<SwitchListTile>(find.byType(SwitchListTile)).onChanged,
+      tester
+          .widget<DropdownButtonFormField<bool>>(
+            find.byType(DropdownButtonFormField<bool>),
+          )
+          .onChanged,
       isNull,
     );
-    await tester.enterText(find.byKey(const ValueKey('cron-limit')), '0');
-    await tester.tap(find.text('Save'));
-    await tester.pumpAndSettle();
-    expect(returned, isFalse);
-    await tester.enterText(find.byKey(const ValueKey('cron-limit')), '');
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('cron-limit')))
+          .enabled,
+      false,
+    );
     await tester.enterText(
       find.byKey(const ValueKey('cron-schedule')),
       'manual',
@@ -298,7 +309,9 @@ void main() {
     );
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const ValueKey('cron-limit')), '5');
+    await tester.tap(find.text('Task content'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('cron-name')), 'changed');
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
     expect(result, isFalse);

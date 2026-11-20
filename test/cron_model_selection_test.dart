@@ -115,8 +115,14 @@ Future<void> _open(
   await tester.pumpAndSettle();
   await tester.tap(find.byType(PopupMenuButton<String>));
   await tester.pumpAndSettle();
-  await tester.tap(find.text(triggerShortcut ? 'Trigger & execution' : 'Edit'));
+  await tester.tap(find.text('Edit'));
   await tester.pumpAndSettle();
+  if (triggerShortcut) {
+    await tester.tap(find.text('Task content'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Trigger settings'));
+    await tester.pumpAndSettle();
+  }
 }
 
 Future<void> _choose(WidgetTester tester, String label) async {

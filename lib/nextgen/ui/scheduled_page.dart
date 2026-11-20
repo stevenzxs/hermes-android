@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/models/session.dart';
 import '../../core/widgets/cron_trigger_settings.dart';
+import '../../core/widgets/cron_job_status.dart';
+import '../../core/utils/cron_schedule.dart';
 import '../../core/services/cron_operations.dart';
 import '../theme/nextgen_theme.dart';
 import 'nextgen_scope.dart';
@@ -56,24 +58,36 @@ class NgScheduledPage extends StatefulWidget {
 class _NgScheduledPageState extends State<NgScheduledPage> {
   List<Map<String, dynamic>>? _jobs;
   String? _error;
+  Object? _gatewayIdentity;
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final gateway = NgScope.of(context).gateway;
+    if (!identical(gateway, _gatewayIdentity)) {
+      _gatewayIdentity = gateway;
+      _jobs = null;
+      _error = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _load();
+      });
+    }
   }
 
   Future<void> _load() async {
+    final client = NgScope.of(context).gateway.dashboard;
+    bool current() =>
+        mounted && identical(client, NgScope.of(context).gateway.dashboard);
     try {
-      final jobs = await NgScope.of(context).gateway.dashboard.getCronJobs();
-      if (mounted) {
+      final jobs = await client.getCronJobs();
+      if (current()) {
         setState(() {
           _jobs = jobs;
           _error = null;
         });
       }
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (current()) setState(() => _error = '$e');
     }
   }
 
@@ -128,9 +142,7 @@ class _NgScheduledPageState extends State<NgScheduledPage> {
                 separatorBuilder: (_, _) => const SizedBox(height: 10),
                 itemBuilder: (context, i) {
                   final job = jobs[i];
-                  final enabled =
-                      job['enabled'] != false &&
-                      job['state']?.toString() != 'paused';
+                  final enabled = !cronJobPaused(job);
                   final last = job['last_status']?.toString();
                   return NgCard(
                     onTap: () async {
@@ -157,12 +169,9 @@ class _NgScheduledPageState extends State<NgScheduledPage> {
                                 style: NgType.heading.copyWith(color: c.text),
                               ),
                             ),
-                            NgPill(
-                              enabled ? ngL.ng_active : ngL.ng_paused,
-                              tone: enabled ? NgTone.success : NgTone.neutral,
-                            ),
                           ],
                         ),
+                        CronJobStatus(job: job),
                         const SizedBox(height: 4),
                         Text(
                           job['schedule_display']?.toString() ??
@@ -173,7 +182,7 @@ class _NgScheduledPageState extends State<NgScheduledPage> {
                         const SizedBox(height: 8),
                         Text(
                           [
-                            if (enabled)
+                            if (enabled && !cronManual(job))
                               ngL.ng_next(
                                 ngWhen(ngParseTime(job['next_run_at'])),
                               ),
@@ -225,8 +234,7 @@ class _JobPageState extends State<_JobPage> {
   bool _busy = false;
 
   String get _id => '${_job['id']}';
-  bool get _enabled =>
-      _job['enabled'] != false && _job['state']?.toString() != 'paused';
+  bool get _enabled => !cronJobPaused(_job);
 
   @override
   void initState() {
@@ -236,12 +244,14 @@ class _JobPageState extends State<_JobPage> {
 
   Future<void> _load() async {
     final d = NgScope.of(context).gateway.dashboard;
+    bool current() =>
+        mounted && identical(d, NgScope.of(context).gateway.dashboard);
     try {
       final results = await Future.wait([
         d.getCronJob(_id),
         d.getCronJobRuns(_id),
       ]);
-      if (!mounted) return;
+      if (!current()) return;
       setState(() {
         final job = results[0] as Map<String, dynamic>;
         _job = job['job'] is Map
@@ -250,7 +260,7 @@ class _JobPageState extends State<_JobPage> {
         _runs = results[1] as List<Session>;
       });
     } catch (e) {
-      if (mounted) setState(() => _runs ??= const []);
+      if (current()) setState(() => _runs ??= const []);
     }
   }
 
@@ -282,30 +292,23 @@ class _JobPageState extends State<_JobPage> {
     }
   }
 
-  Future<void> _edit({bool newRound = false}) async {
+  Future<void> _edit() async {
     if (_busy) return;
     final client = NgScope.of(context).gateway.dashboard;
     bool current() =>
         mounted && identical(client, NgScope.of(context).gateway.dashboard);
     setState(() => _busy = true);
     try {
-      final changed = newRound
-          ? await showCronNewRound(context, client, _job, isCurrent: current)
-          : await showCronTriggerSettings(
-              context,
-              client,
-              _job,
-              focusTrigger: false,
-              isCurrent: current,
-            );
+      final changed = await showCronTriggerSettings(
+        context,
+        client,
+        _job,
+        focusTrigger: false,
+        isCurrent: current,
+      );
       if (mounted && changed && current()) {
         final zh = Localizations.localeOf(context).languageCode == 'zh';
-        ngToast(
-          context,
-          newRound
-              ? (zh ? '已开启新一轮' : 'New round opened')
-              : (zh ? '任务已更新' : 'Cron job updated'),
-        );
+        ngToast(context, zh ? '任务已更新' : 'Cron job updated');
         await _load();
       }
     } catch (e) {
@@ -338,14 +341,6 @@ class _JobPageState extends State<_JobPage> {
           icon: const Icon(Icons.tune),
           onPressed: _busy ? null : () => _edit(),
         ),
-        if ({'completed', 'error'}.contains(_job['state']))
-          IconButton(
-            tooltip: Localizations.localeOf(context).languageCode == 'zh'
-                ? '开启新一轮'
-                : 'Open new round',
-            icon: const Icon(Icons.restart_alt),
-            onPressed: _busy ? null : () => _edit(newRound: true),
-          ),
         IconButton(
           tooltip: ngL.ng_delete,
           icon: Icon(Icons.delete_outline, color: c.danger),
@@ -374,6 +369,7 @@ class _JobPageState extends State<_JobPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                CronJobStatus(job: _job),
                 Text(
                   _job['schedule_display']?.toString() ??
                       _job['schedule']?.toString() ??
@@ -382,11 +378,21 @@ class _JobPageState extends State<_JobPage> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  _enabled
-                      ? ngL.ng_next_run(
-                          ngWhen(ngParseTime(_job['next_run_at'])),
+                  !_enabled
+                      ? cronText(
+                          context,
+                          '请先恢复后再触发；正在运行的任务不受影响',
+                          'Resume before triggering; active runs are unaffected',
                         )
-                      : ngL.ng_paused,
+                      : cronManual(_job)
+                      ? cronText(
+                          context,
+                          '手动触发，无调度时间',
+                          'Manual trigger; no scheduled time',
+                        )
+                      : ngL.ng_next_run(
+                          ngWhen(ngParseTime(_job['next_run_at'])),
+                        ),
                   style: NgType.bodySmall.copyWith(color: c.text3),
                 ),
                 if ((_job['deliver']?.toString() ?? '').isNotEmpty) ...[
@@ -401,25 +407,33 @@ class _JobPageState extends State<_JobPage> {
                   children: [
                     Expanded(
                       child: NgPrimaryButton(
-                        label: ngL.ng_run_now,
+                        label: cronStartLabel(context, _job),
                         icon: Icons.play_arrow_rounded,
                         busy: _busy,
-                        onPressed:
-                            _busy ||
-                                {'completed', 'error'}.contains(_job['state'])
+                        onPressed: _busy || !_enabled || cronEnded(_job)
                             ? null
-                            : () =>
-                                  _do(() => d.triggerJob(_id), ngL.ng_started),
+                            : () => _do(
+                                () => d.triggerJob(_id),
+                                cronManual(_job)
+                                    ? ngL.ng_started
+                                    : cronText(
+                                        context,
+                                        '计划已启用，等待规则时间',
+                                        'Plan enabled; waiting for its rule time',
+                                      ),
+                              ),
                       ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: NgSecondaryButton(
-                        label: _enabled ? ngL.ng_pause : ngL.ng_resume,
+                        label: _enabled
+                            ? ngL.ng_pause
+                            : cronText(context, '恢复', 'Resume'),
                         icon: _enabled
                             ? Icons.pause
                             : Icons.play_circle_outline,
-                        onPressed: _busy
+                        onPressed: _busy || cronEnded(_job)
                             ? null
                             : () => _do(
                                 () => d.setJobPaused(_id, paused: _enabled),
@@ -565,6 +579,17 @@ class _NewJobSheetState extends State<_NewJobSheet> {
               const SizedBox(height: 10),
               Text(_error!, style: NgType.bodySmall.copyWith(color: c.danger)),
             ],
+            const SizedBox(height: 16),
+            TextField(
+              key: const ValueKey('cron-create-limit'),
+              enabled: false,
+              readOnly: true,
+              decoration: InputDecoration(
+                labelText: cronText(context, '最多执行次数', 'Execution limit'),
+                helperText: cronText(context, '留空，不限次数', 'Blank: unlimited'),
+                border: const OutlineInputBorder(),
+              ),
+            ),
             const SizedBox(height: 18),
             NgPrimaryButton(
               label: ngL.ng_create,

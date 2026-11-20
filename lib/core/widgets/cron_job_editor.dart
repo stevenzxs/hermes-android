@@ -87,8 +87,7 @@ class _CronJobEditorState extends State<_CronJobEditor> {
 
   void save() {
     final rule = manual ? 'manual' : schedule.text.trim();
-    final value = limit.text.trim();
-    final n = int.tryParse(value);
+    final n = cronExecutionLimit(widget.job);
     final originalRule = cronScheduleInput(widget.job);
     if ((name.text.trim().isEmpty && name.text != (widget.job['name'] ?? '')) ||
         (prompt.text.trim().isEmpty &&
@@ -96,12 +95,11 @@ class _CronJobEditorState extends State<_CronJobEditor> {
             prompt.text != (widget.job['prompt'] ?? '')) ||
         (rule != originalRule &&
             (!cronEditableSchedule(rule) ||
-                (rule == 'manual' && !manualSupported))) ||
-        (value.isNotEmpty && (n == null || n < 1))) {
+                (rule == 'manual' && !manualSupported)))) {
       setState(
         () => error = text(
-          '请输入有效任务内容、正整数次数，以及 Cron、every 2h 或带时区的 ISO 时间。',
-          'Enter valid content, a positive limit, and cron, every 2h or an ISO timestamp with timezone.',
+          '请输入有效任务内容和触发规则：Cron、every 2h 或带时区的 ISO 时间。',
+          'Enter valid content and a cron, every 2h or ISO timestamp with timezone.',
         ),
       );
       return;
@@ -146,6 +144,8 @@ class _CronJobEditorState extends State<_CronJobEditor> {
               ExpansionTile(
                 key: const ValueKey('cron-content-section'),
                 initiallyExpanded: !widget.focusTrigger,
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: const EdgeInsets.only(top: 12, bottom: 16),
                 title: Text(text('任务内容', 'Task content')),
                 children: [
                   TextField(
@@ -153,18 +153,21 @@ class _CronJobEditorState extends State<_CronJobEditor> {
                     controller: name,
                     decoration: InputDecoration(labelText: context.l10n.name),
                   ),
+                  const SizedBox(height: 16),
                   TextField(
                     key: const ValueKey('cron-prompt'),
                     controller: prompt,
                     maxLines: 3,
                     decoration: InputDecoration(labelText: context.l10n.prompt),
                   ),
+                  const SizedBox(height: 16),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     value: noAgent,
                     title: Text(context.l10n.script_only_no_agent),
                     onChanged: (v) => setState(() => noAgent = v),
                   ),
+                  const SizedBox(height: 16),
                   CronModelPicker(
                     client: widget.client,
                     model: model,
@@ -179,23 +182,49 @@ class _CronJobEditorState extends State<_CronJobEditor> {
                   ),
                 ],
               ),
+              const SizedBox(height: 24),
               ExpansionTile(
                 key: const ValueKey('cron-trigger-section'),
                 initiallyExpanded: widget.focusTrigger,
-                title: Text(text('触发与执行', 'Trigger & execution')),
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: const EdgeInsets.only(top: 12, bottom: 16),
+                title: Text(text('触发设置', 'Trigger settings')),
                 children: [
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    value: manual,
-                    title: Text(text('仅手动触发', 'Manual triggers only')),
+                  DropdownButtonFormField<bool>(
+                    key: const ValueKey('cron-trigger-mode'),
+                    initialValue: manual,
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: text('触发方式', 'Trigger mode'),
+                      border: const OutlineInputBorder(),
+                    ),
+                    items: [
+                      DropdownMenuItem(
+                        value: true,
+                        child: Text(text('手动触发', 'Manual trigger')),
+                      ),
+                      DropdownMenuItem(
+                        value: false,
+                        child: Text(text('自动触发', 'Automatic trigger')),
+                      ),
+                    ],
                     onChanged: manualSupported
                         ? (v) => setState(() {
-                            manual = v;
-                            if (!v && schedule.text == 'manual') {
+                            manual = v!;
+                            if (!manual && schedule.text == 'manual') {
                               schedule.clear();
                             }
                           })
                         : null,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    text(
+                      manual ? '仅在主动触发时执行，没有调度计划时间。' : '按触发规则执行，启动计划不会额外执行一次。',
+                      manual
+                          ? 'Runs only on an explicit trigger; no scheduled time.'
+                          : 'Runs at rule times; starting the plan does not add an immediate run.',
+                    ),
                   ),
                   if (!manualSupported)
                     Text(
@@ -204,46 +233,57 @@ class _CronJobEditorState extends State<_CronJobEditor> {
                         'Manual mode changes unavailable: server capability not confirmed',
                       ),
                     ),
-                  if (!manual)
+                  if (!manual) ...[
+                    const SizedBox(height: 16),
                     TextField(
                       key: const ValueKey('cron-schedule'),
                       controller: schedule,
                       decoration: InputDecoration(
-                        labelText: text('调度规则', 'Schedule'),
+                        labelText: text('触发规则', 'Trigger rule'),
+                        border: const OutlineInputBorder(),
                         hintText:
                             'every 1h / 0 9 * * * / 2026-12-01T09:00:00+08:00',
                       ),
                     ),
+                  ],
+                  const SizedBox(height: 16),
                   TextField(
                     key: const ValueKey('cron-limit'),
                     controller: limit,
-                    keyboardType: TextInputType.number,
+                    enabled: false,
+                    readOnly: true,
                     decoration: InputDecoration(
-                      labelText: text(
-                        '最多执行次数（留空不限）',
-                        'Execution limit (blank: unlimited)',
-                      ),
+                      labelText: text('最多执行次数', 'Execution limit'),
+                      helperText: maximum == null
+                          ? text('不限次数', 'Unlimited')
+                          : text(
+                              '只读，保留已有上限',
+                              'Read-only; existing limit preserved',
+                            ),
+                      border: const OutlineInputBorder(),
                     ),
                   ),
+                  const SizedBox(height: 16),
                   Text(
                     text(
                       '已执行：$consumed；剩余：${remaining ?? '不限'}',
                       'Consumed: $consumed; remaining: ${remaining ?? 'unlimited'}',
                     ),
                   ),
-                  if (widget.job['next_run_at'] != null)
+                  if (!manual && widget.job['next_run_at'] != null)
                     Text(
                       text(
                         '下次执行：${widget.job['next_run_at']}',
                         'Next run: ${widget.job['next_run_at']}',
                       ),
                     ),
-                  Text(
-                    text(
-                      '时区：${widget.job['timezone'] ?? '服务端时区'}',
-                      'Timezone: ${widget.job['timezone'] ?? 'server timezone'}',
+                  if (!manual)
+                    Text(
+                      text(
+                        '时区：${widget.job['timezone'] ?? '服务端时区'}',
+                        'Timezone: ${widget.job['timezone'] ?? 'server timezone'}',
+                      ),
                     ),
-                  ),
                 ],
               ),
               Text(
