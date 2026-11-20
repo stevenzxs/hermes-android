@@ -442,7 +442,14 @@ void main() {
       expect(f.server.listRequests, 1);
       held.complete();
       await _until(tester, () => f.server.listReplies == 1);
-      await _drain(tester);
+      // The server has only queued the first response. The client must still
+      // consume it, finish pagination and mount the route over real socket I/O.
+      // A fixed number of zero-delay drains races loaded CI runners.
+      await _until(
+        tester,
+        () => find.byType(ChatScreen, skipOffstage: false).evaluate().isNotEmpty,
+      );
+      await tester.pump(const Duration(seconds: 1));
       f.expectChat(tester, 'shared');
       expect(f.server.listOffsets, [0, 50]);
     } finally {
