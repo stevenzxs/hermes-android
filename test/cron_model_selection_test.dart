@@ -93,7 +93,11 @@ class _Rig {
   });
 }
 
-Future<void> _open(WidgetTester tester, _Rig rig) async {
+Future<void> _open(
+  WidgetTester tester,
+  _Rig rig, {
+  bool triggerShortcut = false,
+}) async {
   tester.view.physicalSize = const Size(650, 1600);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -111,7 +115,7 @@ Future<void> _open(WidgetTester tester, _Rig rig) async {
   await tester.pumpAndSettle();
   await tester.tap(find.byType(PopupMenuButton<String>));
   await tester.pumpAndSettle();
-  await tester.tap(find.text('Edit'));
+  await tester.tap(find.text(triggerShortcut ? 'Trigger & execution' : 'Edit'));
   await tester.pumpAndSettle();
 }
 
@@ -135,7 +139,10 @@ void _assertScoped(_Rig rig) {
   for (final request in rig.requests) {
     expect(request.url.origin, 'https://gateway.invalid');
     expect(request.url.path, startsWith('/hermes/api/'));
-    expect(request.url.queryParameters['profile'], 'work');
+    // Capabilities are server-wide; per-job/model requests remain profiled.
+    if (!request.url.path.endsWith('/cron/capabilities')) {
+      expect(request.url.queryParameters['profile'], 'work');
+    }
     expect(request.headers.containsKey('authorization'), isFalse);
     expect(request.url.path, isNot(endsWith('/model/set')));
   }
@@ -195,7 +202,44 @@ void main() {
     }
     expect(rig.job['base_url'], endpoint);
     expect(find.text('Cron job updated'), findsOneWidget);
+    expect(rig.updates, {'name': 'Renamed'});
   });
+
+  testWidgets('unchanged edit makes no mutation', (tester) async {
+    final rig = _Rig();
+    await _open(tester, rig);
+    await _save(tester);
+    expect(rig.requests.where((r) => r.method != 'GET'), isEmpty);
+  });
+
+  testWidgets(
+    'Classic trigger shortcut shares content editing and minimal patch',
+    (tester) async {
+      final rig = _Rig()
+        ..job['schedule'] = {
+          'kind': 'once',
+          'run_at': '2026-12-01T09:00:00+08:00',
+        };
+      await _open(tester, rig, triggerShortcut: true);
+      expect(find.text('Edit Cron Job'), findsOneWidget);
+      expect(find.byKey(const ValueKey('cron-name')), findsNothing);
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('cron-schedule')))
+            .controller!
+            .text,
+        '2026-12-01T09:00:00+08:00',
+      );
+      await tester.tap(find.text('Task content'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('cron-name')),
+        'Renamed',
+      );
+      await _save(tester);
+      expect(rig.updates, {'name': 'Renamed'});
+    },
+  );
 
   testWidgets('reselecting current endpoint route does not clear it', (
     tester,
@@ -204,11 +248,9 @@ void main() {
     await _open(tester, rig);
     await _choose(tester, 'custom/model · custom:route · Base URL: $endpoint');
     await _save(tester);
-    for (final key in ['model', 'provider', 'base_url']) {
-      expect(rig.updates!.containsKey(key), isFalse);
-    }
+    expect(rig.updates, isNull);
     expect(rig.job['base_url'], endpoint);
-    expect(find.text('Cron job updated'), findsOneWidget);
+    expect(find.text('Cron job updated'), findsNothing);
   });
 
   testWidgets(
@@ -266,8 +308,7 @@ void main() {
     await _open(tester, rig);
     expect(find.text(' · custom:route'), findsOneWidget);
     await _save(tester);
-    expect(rig.updates!.containsKey('model'), isFalse);
-    expect(rig.updates!.containsKey('provider'), isFalse);
+    expect(rig.updates, isNull);
     expect(rig.job['provider'], 'custom:route');
   });
 
@@ -478,9 +519,7 @@ void main() {
       );
       expect(field.onChanged, isNull);
       await _save(tester);
-      expect(rig.updates!.containsKey('model'), isFalse);
-      expect(rig.updates!.containsKey('provider'), isFalse);
-      expect(rig.updates!.containsKey('base_url'), isFalse);
+      expect(rig.updates, isNull);
       expect(rig.job['base_url'], endpoint);
     },
   );

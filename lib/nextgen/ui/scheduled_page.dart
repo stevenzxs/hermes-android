@@ -257,7 +257,8 @@ class _JobPageState extends State<_JobPage> {
   Future<void> _do(Future<void> Function() action, String done) async {
     if (_busy) return;
     final client = NgScope.of(context).gateway.dashboard;
-    bool current() => mounted && identical(client, NgScope.of(context).gateway.dashboard);
+    bool current() =>
+        mounted && identical(client, NgScope.of(context).gateway.dashboard);
     setState(() => _busy = true);
     try {
       await action();
@@ -267,9 +268,55 @@ class _JobPageState extends State<_JobPage> {
       }
     } catch (e) {
       if (mounted && current()) {
-        ngToast(context, cronFailureLabel(e,
-            chinese: Localizations.localeOf(context).languageCode == 'zh'));
+        ngToast(
+          context,
+          cronFailureLabel(
+            e,
+            chinese: Localizations.localeOf(context).languageCode == 'zh',
+          ),
+        );
         await _load();
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _edit({bool newRound = false}) async {
+    if (_busy) return;
+    final client = NgScope.of(context).gateway.dashboard;
+    bool current() =>
+        mounted && identical(client, NgScope.of(context).gateway.dashboard);
+    setState(() => _busy = true);
+    try {
+      final changed = newRound
+          ? await showCronNewRound(context, client, _job, isCurrent: current)
+          : await showCronTriggerSettings(
+              context,
+              client,
+              _job,
+              focusTrigger: false,
+              isCurrent: current,
+            );
+      if (mounted && changed && current()) {
+        final zh = Localizations.localeOf(context).languageCode == 'zh';
+        ngToast(
+          context,
+          newRound
+              ? (zh ? '已开启新一轮' : 'New round opened')
+              : (zh ? '任务已更新' : 'Cron job updated'),
+        );
+        await _load();
+      }
+    } catch (e) {
+      if (mounted && current()) {
+        ngToast(
+          context,
+          cronFailureLabel(
+            e,
+            chinese: Localizations.localeOf(context).languageCode == 'zh',
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -285,13 +332,20 @@ class _JobPageState extends State<_JobPage> {
       title: _jobName(_job),
       actions: [
         IconButton(
-          tooltip: 'Trigger settings / new round',
+          tooltip: Localizations.localeOf(context).languageCode == 'zh'
+              ? '编辑任务'
+              : 'Edit task',
           icon: const Icon(Icons.tune),
-          onPressed: _busy ? null : () => _do(
-            () => showCronTriggerSettings(context, d, _job),
-            Localizations.localeOf(context).languageCode == 'zh' ? '设置已关闭' : 'Settings closed',
-          ),
+          onPressed: _busy ? null : () => _edit(),
         ),
+        if ({'completed', 'error'}.contains(_job['state']))
+          IconButton(
+            tooltip: Localizations.localeOf(context).languageCode == 'zh'
+                ? '开启新一轮'
+                : 'Open new round',
+            icon: const Icon(Icons.restart_alt),
+            onPressed: _busy ? null : () => _edit(newRound: true),
+          ),
         IconButton(
           tooltip: ngL.ng_delete,
           icon: Icon(Icons.delete_outline, color: c.danger),
@@ -350,8 +404,12 @@ class _JobPageState extends State<_JobPage> {
                         label: ngL.ng_run_now,
                         icon: Icons.play_arrow_rounded,
                         busy: _busy,
-                         onPressed: _busy || {'completed', 'error'}.contains(_job['state']) ? null : () =>
-                            _do(() => d.triggerJob(_id), ngL.ng_started),
+                        onPressed:
+                            _busy ||
+                                {'completed', 'error'}.contains(_job['state'])
+                            ? null
+                            : () =>
+                                  _do(() => d.triggerJob(_id), ngL.ng_started),
                       ),
                     ),
                     const SizedBox(width: 10),

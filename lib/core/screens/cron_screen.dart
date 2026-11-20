@@ -14,9 +14,10 @@ import '../services/connection_manager.dart';
 import '../services/gateway_turn_application_controller.dart';
 import '../theme/hermes_theme.dart';
 import '../widgets/hermes_components.dart';
-import '../widgets/cron_model_picker.dart';
 import '../widgets/cron_schedule_labels.dart';
 import '../widgets/cron_trigger_settings.dart';
+import '../widgets/cron_job_editor.dart';
+import '../widgets/cron_job_draft.dart';
 import '../services/cron_operations.dart';
 import '../utils/cron_schedule.dart';
 import '../utils/relative_time.dart';
@@ -236,8 +237,10 @@ class _CronScreenState extends State<CronScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           hermesStatusSnackBar(
             context,
-            message: cronFailureLabel(e,
-                chinese: Localizations.localeOf(context).languageCode == 'zh'),
+            message: cronFailureLabel(
+              e,
+              chinese: Localizations.localeOf(context).languageCode == 'zh',
+            ),
             status: HermesStatus.failed,
           ),
         );
@@ -424,24 +427,22 @@ class _CronScreenState extends State<CronScreen> {
     }
   }
 
-  Future<void> _showEditJobDialog(Map<String, dynamic> job) async {
+  Future<void> _showEditJobDialog(
+    Map<String, dynamic> job, {
+    bool focusTrigger = false,
+  }) async {
     if (_editing) return;
     setState(() => _editing = true);
     final client = _client;
     try {
-      final result = await _showJobDialog(
-        title: context.l10n.edit_cron_job,
-        actionLabel: context.l10n.save,
-        initialName: _jobName(job),
-        initialPrompt: job['prompt'] as String? ?? '',
-        initialSchedule: _scheduleDisplay(job),
-        initialNoAgent: job['no_agent'] == true,
-        initialModel: job['model'] as String? ?? '',
-        initialProvider: job['provider'] as String? ?? '',
-        initialBaseUrl: job['base_url'] as String? ?? '',
-        modelClient: client,
+      final result = await showCronJobEditor(
+        context,
+        client,
+        job,
+        focusTrigger: focusTrigger,
       );
       if (result == null || !mounted || !identical(client, _client)) return;
+      if (result.isEmpty) return;
 
       final jobId = job['id'] as String? ?? '';
       if (jobId.isEmpty) return;
@@ -454,23 +455,8 @@ class _CronScreenState extends State<CronScreen> {
         }
         final saved = await client.getCronJob(jobId);
         if (!mounted || !identical(client, _client)) return;
-        final expectedModel = result.containsKey('model')
-            ? result['model']
-            : job['model'];
-        final expectedProvider = result.containsKey('provider')
-            ? result['provider']
-            : job['provider'];
-        final expectedBaseUrl = result.containsKey('base_url')
-            ? result['base_url']
-            : job['base_url'];
-        if (saved['id'] != jobId ||
-            saved['name'] != result['name'] ||
-            saved['prompt'] != result['prompt'] ||
-            (saved['no_agent'] == true) != (result['no_agent'] == true) ||
-            (saved['model'] ?? '') != (expectedModel ?? '') ||
-            (saved['provider'] ?? '') != (expectedProvider ?? '') ||
-            (saved['base_url'] ?? '') != (expectedBaseUrl ?? '')) {
-          throw const FormatException('Cron model read-back did not match');
+        if (saved['id'] != jobId || !cronPatchMatches(saved, result)) {
+          throw const FormatException('Cron update read-back did not match');
         }
         if (!mounted) return;
         ScaffoldMessenger.of(
@@ -493,26 +479,38 @@ class _CronScreenState extends State<CronScreen> {
     }
   }
 
+  Future<void> _showNewRound(Map<String, dynamic> job) async {
+    if (_editing) return;
+    final client = _client;
+    setState(() => _editing = true);
+    try {
+      final changed = await showCronNewRound(
+        context,
+        client,
+        job,
+        isCurrent: () => mounted && identical(client, _client),
+      );
+      if (changed && mounted && identical(client, _client)) await _loadJobs();
+    } catch (e) {
+      if (mounted && identical(client, _client)) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    } finally {
+      if (mounted) setState(() => _editing = false);
+    }
+  }
+
+  // Creation is separate from the shared edit form: it requires a full payload.
   Future<Map<String, dynamic>?> _showJobDialog({
     required String title,
     required String actionLabel,
-    String initialName = '',
-    String initialPrompt = '',
-    String initialSchedule = '',
-    bool initialNoAgent = false,
-    String initialModel = '',
-    String initialProvider = '',
-    String initialBaseUrl = '',
-    DashboardClient? modelClient,
   }) async {
-    final nameCtrl = TextEditingController(text: initialName);
-    final promptCtrl = TextEditingController(text: initialPrompt);
-    final scheduleCtrl = TextEditingController(text: initialSchedule);
-    var noAgent = initialNoAgent;
-    var model = initialModel;
-    var provider = initialProvider;
-    var baseUrl = initialBaseUrl;
-    var modelChanged = false;
+    final nameCtrl = TextEditingController();
+    final promptCtrl = TextEditingController();
+    final scheduleCtrl = TextEditingController();
+    var noAgent = false;
 
     try {
       final route = DialogRoute<Map<String, dynamic>>(
@@ -558,21 +556,6 @@ class _CronScreenState extends State<CronScreen> {
                     ),
                     onChanged: (value) => setDialogState(() => noAgent = value),
                   ),
-                  if (modelClient != null)
-                    CronModelPicker(
-                      client: modelClient,
-                      model: model,
-                      provider: provider,
-                      baseUrl: baseUrl,
-                      enabled: !noAgent,
-                      onChanged: (nextModel, nextProvider) =>
-                          setDialogState(() {
-                            model = nextModel;
-                            provider = nextProvider;
-                            baseUrl = '';
-                            modelChanged = true;
-                          }),
-                    ),
                 ],
               ),
             ),
@@ -603,13 +586,6 @@ class _CronScreenState extends State<CronScreen> {
                     'prompt': prompt,
                     'schedule': schedule,
                     'no_agent': noAgent,
-                    if (modelChanged && !noAgent) ...{
-                      'model': model.isEmpty ? null : model,
-                      'provider': provider.isEmpty ? null : provider,
-                      // An endpoint overrides provider routing, so intentional
-                      // model changes must clear the complete old route.
-                      'base_url': null,
-                    },
                   });
                 },
                 child: Text(actionLabel),
@@ -781,14 +757,10 @@ class _CronScreenState extends State<CronScreen> {
                           onSelected: (action) {
                             if (action == 'trigger') _triggerJob(job);
                             if (action == 'settings') {
-                              showCronTriggerSettings(context, _client, job)
-                                  .then((_) { if (mounted) _loadJobs(); })
-                                  .catchError((Object e) {
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                     SnackBar(content: Text('$e')));
-                                }
-                              });
+                              _showEditJobDialog(job, focusTrigger: true);
+                            }
+                            if (action == 'round') {
+                              _showNewRound(job);
                             }
                             if (action == 'edit' && !_editing) {
                               _showEditJobDialog(job);
@@ -799,8 +771,12 @@ class _CronScreenState extends State<CronScreen> {
                           itemBuilder: (_) => [
                             PopupMenuItem(
                               value: 'trigger',
-                              enabled: !_triggering.contains(job['id']) &&
-                                  !{'completed', 'error'}.contains(job['state']),
+                              enabled:
+                                  !_triggering.contains(job['id']) &&
+                                  !{
+                                    'completed',
+                                    'error',
+                                  }.contains(job['state']),
                               child: Row(
                                 children: [
                                   Icon(Icons.play_arrow, size: 18),
@@ -811,9 +787,25 @@ class _CronScreenState extends State<CronScreen> {
                             ),
                             PopupMenuItem(
                               value: 'settings',
-                              child: Text(Localizations.localeOf(context).languageCode == 'zh'
-                                  ? '触发设置 / 开启新一轮' : 'Trigger settings / new round'),
+                              child: Text(
+                                Localizations.localeOf(context).languageCode ==
+                                        'zh'
+                                    ? '触发与执行'
+                                    : 'Trigger & execution',
+                              ),
                             ),
+                            if ({'completed', 'error'}.contains(job['state']))
+                              PopupMenuItem(
+                                value: 'round',
+                                child: Text(
+                                  Localizations.localeOf(
+                                            context,
+                                          ).languageCode ==
+                                          'zh'
+                                      ? '开启新一轮'
+                                      : 'Open new round',
+                                ),
+                              ),
                             PopupMenuItem(
                               value: 'edit',
                               child: Row(
