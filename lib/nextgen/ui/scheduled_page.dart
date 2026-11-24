@@ -501,7 +501,32 @@ class _NewJobSheetState extends State<_NewJobSheet> {
   final _schedule = TextEditingController();
   final _prompt = TextEditingController();
   bool _saving = false;
+  bool _manual = false;
+  // Fail closed: the manual option appears only when the server confirms the
+  // capability, same contract as the shared editor.
+  bool _manualSupported = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _capabilities();
+  }
+
+  Future<void> _capabilities() async {
+    final dashboard = widget.scope.gateway.dashboard;
+    try {
+      final capabilities = await dashboard.cronCapabilities();
+      if (mounted &&
+          identical(dashboard, widget.scope.gateway.dashboard)) {
+        setState(
+          () => _manualSupported = capabilities['manual_schedule'] == true,
+        );
+      }
+    } catch (_) {
+      // Legacy/unreachable server: keep the automatic-only form.
+    }
+  }
 
   @override
   void dispose() {
@@ -512,8 +537,13 @@ class _NewJobSheetState extends State<_NewJobSheet> {
   }
 
   Future<void> _save() async {
-    if (_schedule.text.trim().isEmpty || _prompt.text.trim().isEmpty) {
-      setState(() => _error = ngL.ng_enter_a_schedule_and_a_prompt);
+    final schedule = _manual ? 'manual' : _schedule.text.trim();
+    if ((!_manual && schedule.isEmpty) || _prompt.text.trim().isEmpty) {
+      setState(
+        () => _error = _manual
+            ? cronText(context, '请填写提示词', 'A prompt is required')
+            : ngL.ng_enter_a_schedule_and_a_prompt,
+      );
       return;
     }
     setState(() {
@@ -523,7 +553,7 @@ class _NewJobSheetState extends State<_NewJobSheet> {
     try {
       await widget.scope.gateway.dashboard.createJob(
         prompt: _prompt.text.trim(),
-        schedule: _schedule.text.trim(),
+        schedule: schedule,
         name: _name.text.trim(),
       );
       if (mounted) Navigator.pop(context, true);
@@ -556,11 +586,64 @@ class _NewJobSheetState extends State<_NewJobSheet> {
             const SizedBox(height: 16),
             NgField(controller: _name, label: ngL.ng_name_optional),
             const SizedBox(height: 12),
-            NgField(
-              controller: _schedule,
-              label: ngL.ng_schedule,
-              hint: ngL.ng_every_1h_0_9_or_30m,
+            DropdownButtonFormField<bool>(
+              key: const ValueKey('cron-create-trigger-mode'),
+              initialValue: _manual,
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: cronText(context, '触发方式', 'Trigger mode'),
+                filled: true,
+                fillColor: c.input,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(NgRadii.md),
+                ),
+              ),
+              items: [
+                DropdownMenuItem(
+                  value: false,
+                  child: Text(cronText(context, '自动触发', 'Automatic trigger')),
+                ),
+                DropdownMenuItem(
+                  value: true,
+                  child: Text(cronText(context, '手动触发', 'Manual trigger')),
+                ),
+              ],
+              onChanged: _manualSupported
+                  ? (v) => setState(() => _manual = v!)
+                  : null,
             ),
+            if (!_manualSupported)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  cronText(
+                    context,
+                    '无法确认服务端支持创建仅手动任务',
+                    'Manual mode unavailable: server capability not confirmed',
+                  ),
+                  style: NgType.caption.copyWith(color: c.text3),
+                ),
+              ),
+            if (_manual)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  cronText(
+                    context,
+                    '仅在主动触发时执行，没有调度计划时间。',
+                    'Runs only on an explicit trigger; no scheduled time.',
+                  ),
+                  style: NgType.caption.copyWith(color: c.text3),
+                ),
+              ),
+            if (!_manual) ...[
+              const SizedBox(height: 12),
+              NgField(
+                controller: _schedule,
+                label: ngL.ng_schedule,
+                hint: ngL.ng_every_1h_0_9_or_30m,
+              ),
+            ],
             const SizedBox(height: 12),
             TextField(
               controller: _prompt,

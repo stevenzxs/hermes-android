@@ -394,9 +394,20 @@ class _CronScreenState extends State<CronScreen> {
   }
 
   Future<void> _showAddJobDialog() async {
+    // Fail closed: the manual mode is offered only when the server confirms
+    // the capability, same contract as the shared editor.
+    var manualSupported = false;
+    try {
+      final capabilities = await _client.cronCapabilities();
+      manualSupported = capabilities['manual_schedule'] == true;
+    } catch (_) {
+      // Legacy/unreachable server: keep the automatic-only form.
+    }
+    if (!mounted) return;
     final result = await _showJobDialog(
       title: context.l10n.add_cron_job,
       actionLabel: context.l10n.add,
+      manualSupported: manualSupported,
     );
     if (result == null || !mounted) return;
 
@@ -487,11 +498,13 @@ class _CronScreenState extends State<CronScreen> {
   Future<Map<String, dynamic>?> _showJobDialog({
     required String title,
     required String actionLabel,
+    bool manualSupported = false,
   }) async {
     final nameCtrl = TextEditingController();
     final promptCtrl = TextEditingController();
     final scheduleCtrl = TextEditingController();
     var noAgent = false;
+    var manual = false;
 
     try {
       final route = DialogRoute<Map<String, dynamic>>(
@@ -520,13 +533,65 @@ class _CronScreenState extends State<CronScreen> {
                     maxLines: 3,
                   ),
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: scheduleCtrl,
+                  DropdownButtonFormField<bool>(
+                    key: const ValueKey('cron-create-trigger-mode'),
+                    initialValue: manual,
+                    isExpanded: true,
                     decoration: InputDecoration(
-                      labelText: context.l10n.schedule,
-                      hintText: context.l10n.e_g_0_9_or_every_2h,
+                      labelText: cronText(ctx, '触发方式', 'Trigger mode'),
+                      border: const OutlineInputBorder(),
                     ),
+                    items: [
+                      DropdownMenuItem(
+                        value: false,
+                        child: Text(cronText(ctx, '自动触发', 'Automatic trigger')),
+                      ),
+                      DropdownMenuItem(
+                        value: true,
+                        child: Text(cronText(ctx, '手动触发', 'Manual trigger')),
+                      ),
+                    ],
+                    onChanged: manualSupported
+                        ? (v) => setDialogState(() => manual = v!)
+                        : null,
                   ),
+                  if (!manualSupported)
+                    Text(
+                      cronText(
+                        ctx,
+                        '无法确认服务端支持创建仅手动任务',
+                        'Manual mode unavailable: server capability not confirmed',
+                      ),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(ctx).colorScheme.outline,
+                      ),
+                    ),
+                  if (manual)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        cronText(
+                          ctx,
+                          '仅在主动触发时执行，没有调度计划时间。',
+                          'Runs only on an explicit trigger; no scheduled time.',
+                        ),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(ctx).colorScheme.outline,
+                        ),
+                      ),
+                    ),
+                  if (!manual) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: scheduleCtrl,
+                      decoration: InputDecoration(
+                        labelText: context.l10n.schedule,
+                        hintText: context.l10n.e_g_0_9_or_every_2h,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   SwitchListTile(
                     value: noAgent,
@@ -560,13 +625,23 @@ class _CronScreenState extends State<CronScreen> {
                 onPressed: () {
                   final name = nameCtrl.text.trim();
                   final prompt = promptCtrl.text.trim();
-                  final schedule = scheduleCtrl.text.trim();
+                  final schedule = manual ? 'manual' : scheduleCtrl.text.trim();
 
-                  if (name.isEmpty || prompt.isEmpty || schedule.isEmpty) {
+                  if (name.isEmpty ||
+                      prompt.isEmpty ||
+                      (!manual && schedule.isEmpty)) {
                     ScaffoldMessenger.of(ctx).showSnackBar(
                       SnackBar(
                         content: Text(
-                          context.l10n.name_prompt_and_schedule_are_required,
+                          manual
+                              ? cronText(
+                                  ctx,
+                                  '名称和提示词为必填项',
+                                  'Name and prompt are required',
+                                )
+                              : context
+                                    .l10n
+                                    .name_prompt_and_schedule_are_required,
                         ),
                       ),
                     );
